@@ -1,58 +1,106 @@
 import { create } from 'zustand';
 import type { User } from '../types';
-import { dummyUsers } from '../data/dummyData';
+import { authApi } from '../lib/api';
 
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  error: string | null;
   
   // Actions
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   demoLogin: () => void;
+  clearError: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isAuthenticated: false,
   isLoading: false,
+  error: null,
 
-  login: async (_email: string, _password: string) => {
-    set({ isLoading: true });
+  login: async (email: string, password: string) => {
+    set({ isLoading: true, error: null });
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // For demo, accept any credentials
-    const user = dummyUsers[0];
-    set({ user, isAuthenticated: true, isLoading: false });
+    try {
+      const response = await authApi.login(email, password);
+      
+      // Store tokens
+      localStorage.setItem('auth_token', response.token);
+      localStorage.setItem('refresh_token', response.refresh);
+      
+      // Convert user data
+      const user: User = {
+        id: response.user.id,
+        name: response.user.name,
+        email: response.user.email,
+        avatar: response.user.avatar,
+        createdAt: new Date(response.user.createdAt),
+      };
+      
+      set({ user, isAuthenticated: true, isLoading: false });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Login failed';
+      set({ error: errorMessage, isLoading: false });
+      throw error;
+    }
   },
 
-  signup: async (name: string, email: string, _password: string) => {
-    set({ isLoading: true });
+  signup: async (name: string, email: string, password: string) => {
+    set({ isLoading: true, error: null });
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Create new user
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      name,
-      email,
-      createdAt: new Date(),
-    };
-    
-    set({ user: newUser, isAuthenticated: true, isLoading: false });
+    try {
+      const response = await authApi.register(name, email, password);
+      
+      // Store tokens
+      localStorage.setItem('auth_token', response.token);
+      localStorage.setItem('refresh_token', response.refresh);
+      
+      // Convert user data
+      const user: User = {
+        id: response.user.id,
+        name: response.user.name,
+        email: response.user.email,
+        avatar: response.user.avatar,
+        createdAt: new Date(response.user.createdAt),
+      };
+      
+      set({ user, isAuthenticated: true, isLoading: false });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Signup failed';
+      set({ error: errorMessage, isLoading: false });
+      throw error;
+    }
   },
 
-  logout: () => {
-    set({ user: null, isAuthenticated: false });
+  logout: async () => {
+    try {
+      await authApi.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Clear tokens and state
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('refresh_token');
+      set({ user: null, isAuthenticated: false });
+    }
   },
 
   demoLogin: () => {
-    const user = dummyUsers[0];
+    // For demo purposes - create a demo user without API call
+    const user: User = {
+      id: 'demo-user',
+      name: 'Demo User',
+      email: 'demo@chimera.lab',
+      createdAt: new Date(),
+    };
     set({ user, isAuthenticated: true });
+  },
+
+  clearError: () => {
+    set({ error: null });
   },
 }));

@@ -1,10 +1,11 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useIntegrationStore } from '../stores/integrationStore';
 import { useChatStore } from '../stores/chatStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { CyberSpinner } from '../components/ui';
 import { ArrowLeft } from 'lucide-react';
+import type { CognitiveModel } from '../types';
 
 // Lazy load the 3D brain visualization for better performance
 const BrainVisualization = lazy(() => import('../components/brain/BrainVisualization'));
@@ -12,26 +13,50 @@ const BrainVisualization = lazy(() => import('../components/brain/BrainVisualiza
 export default function ModelSelect() {
   const navigate = useNavigate();
   const [isInitializing, setIsInitializing] = useState(false);
+  const [models, setModels] = useState<CognitiveModel[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
   const getConnectedModels = useIntegrationStore(state => state.getConnectedModels);
   const createConversation = useChatStore(state => state.createConversation);
   const { getActiveWorkspace } = useWorkspaceStore();
   
-  const models = getConnectedModels();
   const activeWorkspace = getActiveWorkspace();
+
+  // Load connected models
+  useEffect(() => {
+    const loadModels = async () => {
+      setIsLoadingModels(true);
+      try {
+        const connectedModels = await getConnectedModels();
+        setModels(connectedModels);
+      } catch (error) {
+        console.error('Failed to load models:', error);
+        setModels([]);
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+    
+    loadModels();
+  }, [getConnectedModels]);
 
   const handleModelSelect = async (modelId: string) => {
     if (!activeWorkspace || isInitializing) return;
     
     setIsInitializing(true);
     
-    // Simulate initialization delay for visual feedback
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
-    // Create a new conversation with the selected model
-    const conversationId = createConversation(activeWorkspace.id, modelId);
-    
-    // Navigate to the chat interface
-    navigate(`/app/chat/${conversationId}`);
+    try {
+      // Simulate initialization delay for visual feedback
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      // Create a new conversation with the selected model
+      const conversationId = await createConversation(activeWorkspace.id, modelId);
+      
+      // Navigate to the chat interface
+      navigate(`/app/chat/${conversationId}`);
+    } catch (error) {
+      console.error('Failed to create conversation:', error);
+      setIsInitializing(false);
+    }
   };
 
   const handleReturnToDashboard = () => {
@@ -68,7 +93,7 @@ export default function ModelSelect() {
 
       {/* 3D Brain Visualization */}
       <div className="relative h-[600px] w-full">
-        <Suspense fallback={
+        {isLoadingModels ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <CyberSpinner size="lg" variant="ring" />
@@ -77,12 +102,23 @@ export default function ModelSelect() {
               </p>
             </div>
           </div>
-        }>
-          <BrainVisualization
-            models={models}
-            onModelSelect={handleModelSelect}
-          />
-        </Suspense>
+        ) : (
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <CyberSpinner size="lg" variant="ring" />
+                <p className="text-neon-green mt-4 font-mono text-sm animate-pulse">
+                  Loading Neural Interface...
+                </p>
+              </div>
+            </div>
+          }>
+            <BrainVisualization
+              models={models}
+              onModelSelect={handleModelSelect}
+            />
+          </Suspense>
+        )}
       </div>
 
       {/* Footer Status */}

@@ -1,17 +1,24 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, MessageSquare, Calendar, Brain } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useIntegrationStore } from '../stores/integrationStore';
 import { CyberCard } from '../components/ui';
+import type { CognitiveModel } from '../types';
 
 export default function ChatList() {
   const navigate = useNavigate();
   const { conversations } = useChatStore();
   const { activeWorkspaceId } = useWorkspaceStore();
   const { getConnectedModels } = useIntegrationStore();
+  const [connectedModels, setConnectedModels] = useState<CognitiveModel[]>([]);
   
-  const connectedModels = getConnectedModels();
+  // Load connected models
+  useEffect(() => {
+    getConnectedModels().then(setConnectedModels).catch(() => setConnectedModels([]));
+  }, [getConnectedModels]);
+  
   const workspaceConversations = conversations.filter(
     conv => conv.workspaceId === activeWorkspaceId
   );
@@ -22,12 +29,20 @@ export default function ChatList() {
   };
 
   const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(date));
+    try {
+      const dateObj = new Date(date);
+      if (isNaN(dateObj.getTime())) {
+        return 'Invalid date';
+      }
+      return new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(dateObj);
+    } catch (error) {
+      return 'Invalid date';
+    }
   };
 
   return (

@@ -10,6 +10,7 @@ const Landing = lazy(() => import('./pages/Landing'));
 const About = lazy(() => import('./pages/About'));
 const Login = lazy(() => import('./pages/Login'));
 const Signup = lazy(() => import('./pages/Signup'));
+const AppIndex = lazy(() => import('./pages/AppIndex'));
 const WorkspaceDashboard = lazy(() => import('./pages/WorkspaceDashboard'));
 const ChatList = lazy(() => import('./pages/ChatList'));
 const ModelSelect = lazy(() => import('./pages/ModelSelect'));
@@ -66,7 +67,7 @@ function App() {
             <Route path="dev" element={<Console />} />
             <Route path="settings" element={<Settings />} />
             {/* Additional app routes will be added in future tasks */}
-            <Route index element={<Navigate to="/app/workspace/workspace-1" replace />} />
+            <Route index element={<AppIndex />} />
           </Route>
 
           {/* 404 Error Page */}

@@ -1,17 +1,19 @@
 import { create } from 'zustand';
 import type { Memory } from '../types';
-import { dummyMemories } from '../data/dummyData';
+import { memoryApi } from '../lib/api';
 
 interface MemoryState {
   memories: Memory[];
   searchQuery: string;
   sortBy: 'recent' | 'title' | 'relevance';
   selectedMemoryId: string | null;
+  isLoading: boolean;
   
   // Actions
-  addMemory: (memory: Omit<Memory, 'id' | 'createdAt' | 'updatedAt' | 'version'>) => void;
-  updateMemory: (id: string, updates: Partial<Memory>) => void;
-  deleteMemory: (id: string) => void;
+  loadMemories: (workspaceId: string) => Promise<void>;
+  addMemory: (workspaceId: string, memory: Omit<Memory, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'snippet' | 'workspaceId'>) => Promise<void>;
+  updateMemory: (id: string, updates: Partial<Memory>) => Promise<void>;
+  deleteMemory: (id: string) => Promise<void>;
   setSearchQuery: (query: string) => void;
   setSortBy: (sortBy: 'recent' | 'title' | 'relevance') => void;
   setSelectedMemory: (id: string | null) => void;
@@ -24,47 +26,87 @@ interface MemoryState {
 }
 
 export const useMemoryStore = create<MemoryState>((set, get) => ({
-  memories: dummyMemories,
+  memories: [],
   searchQuery: '',
   sortBy: 'recent',
   selectedMemoryId: null,
+  isLoading: false,
 
-  addMemory: (memoryData) => {
-    const newMemory: Memory = {
-      ...memoryData,
-      id: `memory-${Date.now()}`,
-      snippet: memoryData.content.substring(0, 150) + (memoryData.content.length > 150 ? '...' : ''),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      version: 1,
-    };
-    
-    set(state => ({ memories: [...state.memories, newMemory] }));
+  loadMemories: async (workspaceId: string) => {
+    set({ isLoading: true });
+    try {
+      const { searchQuery, sortBy } = get();
+      const response = await memoryApi.list(workspaceId, searchQuery || undefined, sortBy);
+      const memories = response.memories.map(mem => ({
+        ...mem,
+        createdAt: new Date(mem.createdAt),
+        updatedAt: new Date(mem.updatedAt),
+      }));
+      
+      set({ memories, isLoading: false });
+    } catch (error) {
+      console.error('Failed to load memories:', error);
+      set({ isLoading: false });
+    }
   },
 
-  updateMemory: (id: string, updates: Partial<Memory>) => {
-    set(state => ({
-      memories: state.memories.map(mem => 
-        mem.id === id 
-          ? { 
-              ...mem, 
-              ...updates, 
-              snippet: updates.content 
-                ? updates.content.substring(0, 150) + (updates.content.length > 150 ? '...' : '')
-                : mem.snippet,
-              updatedAt: new Date(),
-              version: mem.version + 1,
-            } 
-          : mem
-      ),
-    }));
+  addMemory: async (workspaceId: string, memoryData) => {
+    try {
+      const response = await memoryApi.create(workspaceId, {
+        title: memoryData.title,
+        content: memoryData.content,
+        tags: memoryData.tags,
+        metadata: memoryData.metadata,
+      });
+      
+      const newMemory: Memory = {
+        ...response,
+        createdAt: new Date(response.createdAt),
+        updatedAt: new Date(response.updatedAt),
+      };
+      
+      set(state => ({ memories: [...state.memories, newMemory] }));
+    } catch (error) {
+      console.error('Failed to add memory:', error);
+      throw error;
+    }
   },
 
-  deleteMemory: (id: string) => {
-    set(state => ({
-      memories: state.memories.filter(mem => mem.id !== id),
-      selectedMemoryId: state.selectedMemoryId === id ? null : state.selectedMemoryId,
-    }));
+  updateMemory: async (id: string, updates: Partial<Memory>) => {
+    try {
+      const response = await memoryApi.update(id, {
+        title: updates.title,
+        content: updates.content,
+        tags: updates.tags,
+        metadata: updates.metadata,
+      });
+      
+      set(state => ({
+        memories: state.memories.map(mem => 
+          mem.id === id ? {
+            ...response,
+            createdAt: new Date(response.createdAt),
+            updatedAt: new Date(response.updatedAt),
+          } : mem
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to update memory:', error);
+      throw error;
+    }
+  },
+
+  deleteMemory: async (id: string) => {
+    try {
+      await memoryApi.delete(id);
+      set(state => ({
+        memories: state.memories.filter(mem => mem.id !== id),
+        selectedMemoryId: state.selectedMemoryId === id ? null : state.selectedMemoryId,
+      }));
+    } catch (error) {
+      console.error('Failed to delete memory:', error);
+      throw error;
+    }
   },
 
   setSearchQuery: (query: string) => {
@@ -80,16 +122,21 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   },
 
   reEmbedMemory: async (id: string) => {
-    // Simulate re-embedding process
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    set(state => ({
-      memories: state.memories.map(mem => 
-        mem.id === id 
-          ? { ...mem, updatedAt: new Date(), version: mem.version + 1 }
-          : mem
-      ),
-    }));
+    try {
+      const response = await memoryApi.reEmbed(id);
+      set(state => ({
+        memories: state.memories.map(mem => 
+          mem.id === id ? {
+            ...response,
+            createdAt: new Date(response.createdAt),
+            updatedAt: new Date(response.updatedAt),
+          } : mem
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to re-embed memory:', error);
+      throw error;
+    }
   },
 
   getMemoriesByWorkspace: (workspaceId: string) => {
@@ -123,7 +170,6 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         filtered.sort((a, b) => a.title.localeCompare(b.title));
         break;
       case 'relevance':
-        // For now, same as recent. Would use embedding similarity in real app
         filtered.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
         break;
     }

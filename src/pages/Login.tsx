@@ -6,18 +6,24 @@ import { useAuthStore } from '../stores/authStore';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login, demoLogin } = useAuthStore();
+  const { login, demoLogin, error, clearError } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const handleLogin = async () => {
-    await login(email, password);
-    navigate('/app/workspace/workspace-1');
+    try {
+      await login(email, password);
+      // Redirect to /app which will load workspaces and redirect to first one
+      navigate('/app');
+    } catch (error) {
+      // Error is already set in the store
+    }
   };
 
   const handleDemoAccess = () => {
     demoLogin();
-    navigate('/app/workspace/workspace-1');
+    // Redirect to /app which will load workspaces and redirect to first one
+    navigate('/app');
   };
 
   return (
@@ -60,6 +66,12 @@ export default function Login() {
                 onChange={setPassword}
               />
             </div>
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-3 text-red-400 text-sm">
+                {error}. Please enter valid credentials.
+              </div>
+            )}
 
             <CyberButton
               variant="primary"

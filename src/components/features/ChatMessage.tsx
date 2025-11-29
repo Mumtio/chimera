@@ -2,6 +2,7 @@ import React, { useState, memo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Pin, Copy, Trash2 } from 'lucide-react';
 import type { Message } from '../../types';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 export interface ChatMessageProps {
   message: Message;
@@ -74,9 +75,9 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
             `}
             whileHover={{ scale: 1.01 }}
           >
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">
-              {message.content}
-            </p>
+            <div className="text-sm leading-relaxed">
+              <MarkdownRenderer content={message.content} />
+            </div>
           </motion.div>
 
           {/* Action Menu */}

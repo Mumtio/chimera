@@ -1,23 +1,26 @@
 import { create } from 'zustand';
 import type { Conversation, Message } from '../types';
-import { dummyConversations } from '../data/dummyData';
+import { conversationApi } from '../lib/api';
 
 interface ChatState {
   conversations: Conversation[];
   activeConversationId: string | null;
   autoStore: boolean;
+  isLoading: boolean;
   
   // Actions
-  createConversation: (workspaceId: string, modelId: string, title?: string) => string;
-  updateConversation: (id: string, updates: Partial<Conversation>) => void;
-  deleteConversation: (id: string) => void;
+  loadConversations: (workspaceId: string) => Promise<void>;
+  createConversation: (workspaceId: string, modelId: string, title?: string) => Promise<string>;
+  updateConversation: (id: string, updates: Partial<Conversation>) => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
   setActiveConversation: (id: string | null) => void;
-  sendMessage: (conversationId: string, content: string, role?: 'user' | 'assistant') => void;
-  pinMessage: (messageId: string) => void;
-  unpinMessage: (messageId: string) => void;
-  deleteMessage: (messageId: string) => void;
-  injectMemory: (conversationId: string, memoryId: string) => void;
-  removeInjectedMemory: (conversationId: string, memoryId: string) => void;
+  loadConversationMessages: (conversationId: string) => Promise<void>;
+  sendMessage: (conversationId: string, content: string, getAiResponse?: boolean) => Promise<void>;
+  pinMessage: (conversationId: string, messageId: string) => Promise<void>;
+  unpinMessage: (conversationId: string, messageId: string) => Promise<void>;
+  deleteMessage: (conversationId: string, messageId: string) => Promise<void>;
+  injectMemory: (conversationId: string, memoryId: string) => Promise<void>;
+  removeInjectedMemory: (conversationId: string, memoryId: string) => Promise<void>;
   setAutoStore: (enabled: boolean) => void;
   
   // Selectors
@@ -28,160 +31,244 @@ interface ChatState {
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
-  conversations: dummyConversations,
+  conversations: [],
   activeConversationId: null,
   autoStore: true,
+  isLoading: false,
 
-  createConversation: (workspaceId: string, modelId: string, title?: string) => {
-    const newConversation: Conversation = {
-      id: `conv-${Date.now()}`,
-      workspaceId,
-      title: title || 'New Conversation',
-      modelId,
-      messages: [],
-      injectedMemories: [],
-      status: 'active',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    
-    set(state => ({
-      conversations: [...state.conversations, newConversation],
-      activeConversationId: newConversation.id,
-    }));
-    
-    return newConversation.id;
+  loadConversations: async (workspaceId: string) => {
+    set({ isLoading: true });
+    try {
+      const response = await conversationApi.list(workspaceId);
+      const conversations = response.conversations.map(conv => ({
+        ...conv,
+        messages: [],
+        createdAt: new Date(conv.createdAt),
+        updatedAt: new Date(conv.updatedAt),
+      }));
+      
+      set({ conversations, isLoading: false });
+    } catch (error) {
+      console.error('Failed to load conversations:', error);
+      set({ isLoading: false });
+    }
   },
 
-  updateConversation: (id: string, updates: Partial<Conversation>) => {
-    set(state => ({
-      conversations: state.conversations.map(conv =>
-        conv.id === id ? { ...conv, ...updates, updatedAt: new Date() } : conv
-      ),
-    }));
+  createConversation: async (workspaceId: string, modelId: string, title?: string) => {
+    try {
+      const response = await conversationApi.create(workspaceId, title || 'New Conversation', modelId);
+      const newConversation: Conversation = {
+        ...response,
+        messages: response.messages.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp),
+        })),
+        createdAt: new Date(response.createdAt),
+        updatedAt: new Date(response.updatedAt),
+      };
+      
+      set(state => ({
+        conversations: [...state.conversations, newConversation],
+        activeConversationId: newConversation.id,
+      }));
+      
+      return newConversation.id;
+    } catch (error) {
+      console.error('Failed to create conversation:', error);
+      throw error;
+    }
   },
 
-  deleteConversation: (id: string) => {
-    set(state => ({
-      conversations: state.conversations.filter(conv => conv.id !== id),
-      activeConversationId: state.activeConversationId === id ? null : state.activeConversationId,
-    }));
+  updateConversation: async (id: string, updates: Partial<Conversation>) => {
+    try {
+      const response = await conversationApi.update(id, updates);
+      set(state => ({
+        conversations: state.conversations.map(conv =>
+          conv.id === id ? {
+            ...conv,
+            ...response,
+            messages: conv.messages,
+            createdAt: new Date(response.createdAt),
+            updatedAt: new Date(response.updatedAt),
+          } : conv
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to update conversation:', error);
+      throw error;
+    }
+  },
+
+  deleteConversation: async (id: string) => {
+    try {
+      await conversationApi.delete(id);
+      set(state => ({
+        conversations: state.conversations.filter(conv => conv.id !== id),
+        activeConversationId: state.activeConversationId === id ? null : state.activeConversationId,
+      }));
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+      throw error;
+    }
   },
 
   setActiveConversation: (id: string | null) => {
     set({ activeConversationId: id });
-  },
-
-  sendMessage: (conversationId: string, content: string, role: 'user' | 'assistant' = 'user') => {
-    const newMessage: Message = {
-      id: `msg-${Date.now()}`,
-      conversationId,
-      role,
-      content,
-      timestamp: new Date(),
-      isPinned: false,
-    };
     
-    set(state => ({
-      conversations: state.conversations.map(conv => {
-        if (conv.id === conversationId) {
-          return {
-            ...conv,
-            messages: [...conv.messages, newMessage],
-            updatedAt: new Date(),
-          };
-        }
-        return conv;
-      }),
-    }));
-    
-    // Simulate AI response for user messages
-    if (role === 'user') {
-      setTimeout(() => {
-        const aiMessage: Message = {
-          id: `msg-${Date.now()}`,
-          conversationId,
-          role: 'assistant',
-          content: 'This is a simulated AI response. In the full implementation, this would be generated by the selected cognitive model with access to injected memories.',
-          timestamp: new Date(),
-          isPinned: false,
-        };
-        
-        set(state => ({
-          conversations: state.conversations.map(conv => {
-            if (conv.id === conversationId) {
-              return {
-                ...conv,
-                messages: [...conv.messages, aiMessage],
-                updatedAt: new Date(),
-              };
-            }
-            return conv;
-          }),
-        }));
-      }, 1500);
+    // Load messages if not already loaded
+    if (id) {
+      const conv = get().getConversationById(id);
+      if (conv && conv.messages.length === 0) {
+        get().loadConversationMessages(id);
+      }
     }
   },
 
-  pinMessage: (messageId: string) => {
-    set(state => ({
-      conversations: state.conversations.map(conv => ({
-        ...conv,
-        messages: conv.messages.map(msg =>
-          msg.id === messageId ? { ...msg, isPinned: true } : msg
-        ),
-      })),
-    }));
-  },
-
-  unpinMessage: (messageId: string) => {
-    set(state => ({
-      conversations: state.conversations.map(conv => ({
-        ...conv,
-        messages: conv.messages.map(msg =>
-          msg.id === messageId ? { ...msg, isPinned: false } : msg
-        ),
-      })),
-    }));
-  },
-
-  deleteMessage: (messageId: string) => {
-    set(state => ({
-      conversations: state.conversations.map(conv => ({
-        ...conv,
-        messages: conv.messages.filter(msg => msg.id !== messageId),
-      })),
-    }));
-  },
-
-  injectMemory: (conversationId: string, memoryId: string) => {
-    set(state => ({
-      conversations: state.conversations.map(conv => {
-        if (conv.id === conversationId && !conv.injectedMemories.includes(memoryId)) {
-          return {
+  loadConversationMessages: async (conversationId: string) => {
+    try {
+      const response = await conversationApi.get(conversationId);
+      set(state => ({
+        conversations: state.conversations.map(conv =>
+          conv.id === conversationId ? {
             ...conv,
-            injectedMemories: [...conv.injectedMemories, memoryId],
-            updatedAt: new Date(),
-          };
-        }
-        return conv;
-      }),
-    }));
+            messages: response.messages.map(msg => ({
+              ...msg,
+              timestamp: new Date(msg.timestamp),
+            })),
+            injectedMemories: response.injectedMemories,
+          } : conv
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to load conversation messages:', error);
+    }
   },
 
-  removeInjectedMemory: (conversationId: string, memoryId: string) => {
-    set(state => ({
-      conversations: state.conversations.map(conv => {
-        if (conv.id === conversationId) {
-          return {
-            ...conv,
-            injectedMemories: conv.injectedMemories.filter(id => id !== memoryId),
-            updatedAt: new Date(),
-          };
-        }
-        return conv;
-      }),
-    }));
+  sendMessage: async (conversationId: string, content: string, getAiResponse: boolean = true) => {
+    try {
+      const response = await conversationApi.sendMessage(conversationId, content, getAiResponse);
+      
+      const userMessage: Message = {
+        ...response.userMessage,
+        timestamp: new Date(response.userMessage.timestamp),
+      };
+      
+      const messages = [userMessage];
+      
+      if (response.assistantMessage) {
+        messages.push({
+          ...response.assistantMessage,
+          timestamp: new Date(response.assistantMessage.timestamp),
+        });
+      }
+      
+      set(state => ({
+        conversations: state.conversations.map(conv => {
+          if (conv.id === conversationId) {
+            return {
+              ...conv,
+              messages: [...conv.messages, ...messages],
+              updatedAt: new Date(),
+            };
+          }
+          return conv;
+        }),
+      }));
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      throw error;
+    }
+  },
+
+  pinMessage: async (conversationId: string, messageId: string) => {
+    try {
+      await conversationApi.updateMessage(conversationId, messageId, { isPinned: true });
+      set(state => ({
+        conversations: state.conversations.map(conv => ({
+          ...conv,
+          messages: conv.messages.map(msg =>
+            msg.id === messageId ? { ...msg, isPinned: true } : msg
+          ),
+        })),
+      }));
+    } catch (error) {
+      console.error('Failed to pin message:', error);
+      throw error;
+    }
+  },
+
+  unpinMessage: async (conversationId: string, messageId: string) => {
+    try {
+      await conversationApi.updateMessage(conversationId, messageId, { isPinned: false });
+      set(state => ({
+        conversations: state.conversations.map(conv => ({
+          ...conv,
+          messages: conv.messages.map(msg =>
+            msg.id === messageId ? { ...msg, isPinned: false } : msg
+          ),
+        })),
+      }));
+    } catch (error) {
+      console.error('Failed to unpin message:', error);
+      throw error;
+    }
+  },
+
+  deleteMessage: async (conversationId: string, messageId: string) => {
+    try {
+      await conversationApi.deleteMessage(conversationId, messageId);
+      set(state => ({
+        conversations: state.conversations.map(conv => ({
+          ...conv,
+          messages: conv.messages.filter(msg => msg.id !== messageId),
+        })),
+      }));
+    } catch (error) {
+      console.error('Failed to delete message:', error);
+      throw error;
+    }
+  },
+
+  injectMemory: async (conversationId: string, memoryId: string) => {
+    try {
+      await conversationApi.injectMemory(conversationId, memoryId);
+      set(state => ({
+        conversations: state.conversations.map(conv => {
+          if (conv.id === conversationId && !conv.injectedMemories.includes(memoryId)) {
+            return {
+              ...conv,
+              injectedMemories: [...conv.injectedMemories, memoryId],
+              updatedAt: new Date(),
+            };
+          }
+          return conv;
+        }),
+      }));
+    } catch (error) {
+      console.error('Failed to inject memory:', error);
+      throw error;
+    }
+  },
+
+  removeInjectedMemory: async (conversationId: string, memoryId: string) => {
+    try {
+      await conversationApi.removeInjectedMemory(conversationId, memoryId);
+      set(state => ({
+        conversations: state.conversations.map(conv => {
+          if (conv.id === conversationId) {
+            return {
+              ...conv,
+              injectedMemories: conv.injectedMemories.filter(id => id !== memoryId),
+              updatedAt: new Date(),
+            };
+          }
+          return conv;
+        }),
+      }));
+    } catch (error) {
+      console.error('Failed to remove injected memory:', error);
+      throw error;
+    }
   },
 
   setAutoStore: (enabled: boolean) => {

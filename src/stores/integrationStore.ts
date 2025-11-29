@@ -1,97 +1,136 @@
 import { create } from 'zustand';
 import type { Integration, CognitiveModel } from '../types';
-import { dummyIntegrations } from '../data/dummyData';
+import { integrationApi } from '../lib/api';
 
 interface IntegrationState {
   integrations: Integration[];
+  isLoading: boolean;
   
   // Actions
-  saveApiKey: (provider: 'openai' | 'anthropic' | 'google', apiKey: string) => void;
+  loadIntegrations: () => Promise<void>;
+  saveApiKey: (provider: 'openai' | 'anthropic' | 'google', apiKey: string) => Promise<void>;
   testConnection: (provider: 'openai' | 'anthropic' | 'google') => Promise<boolean>;
-  disableIntegration: (provider: 'openai' | 'anthropic' | 'google') => void;
+  disableIntegration: (provider: 'openai' | 'anthropic' | 'google') => Promise<void>;
   updateIntegrationStatus: (provider: 'openai' | 'anthropic' | 'google', status: 'connected' | 'error' | 'disconnected', errorMessage?: string) => void;
   
   // Selectors
   getIntegrationByProvider: (provider: 'openai' | 'anthropic' | 'google') => Integration | undefined;
-  getConnectedModels: () => CognitiveModel[];
+  getConnectedModels: () => Promise<CognitiveModel[]>;
   isProviderConnected: (provider: 'openai' | 'anthropic' | 'google') => boolean;
 }
 
 export const useIntegrationStore = create<IntegrationState>((set, get) => ({
-  integrations: dummyIntegrations,
+  integrations: [],
+  isLoading: false,
 
-  saveApiKey: (provider, apiKey) => {
-    set(state => {
-      const existing = state.integrations.find(int => int.provider === provider);
+  loadIntegrations: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await integrationApi.list();
+      const integrations = response.integrations.map(int => ({
+        ...int,
+        userId: int.id,
+        lastTested: int.lastTested ? new Date(int.lastTested) : undefined,
+      }));
+      
+      set({ integrations, isLoading: false });
+    } catch (error) {
+      console.error('Failed to load integrations:', error);
+      set({ isLoading: false });
+    }
+  },
+
+  saveApiKey: async (provider, apiKey) => {
+    try {
+      const existing = get().integrations.find(int => int.provider === provider);
       
       if (existing) {
-        return {
+        const response = await integrationApi.update(existing.id, apiKey);
+        set(state => ({
           integrations: state.integrations.map(int =>
             int.provider === provider
-              ? { ...int, apiKey, status: 'connected' as const, errorMessage: undefined }
+              ? {
+                  ...int,
+                  apiKey: response.apiKey,
+                  status: response.status,
+                  lastTested: response.lastTested ? new Date(response.lastTested) : undefined,
+                  errorMessage: response.errorMessage,
+                }
               : int
           ),
-        };
+        }));
       } else {
+        const response = await integrationApi.create(provider, apiKey);
         const newIntegration: Integration = {
-          id: `int-${Date.now()}`,
-          userId: 'user-1',
-          provider,
-          apiKey,
-          status: 'connected',
-          lastTested: new Date(),
+          ...response,
+          userId: response.id,
+          lastTested: response.lastTested ? new Date(response.lastTested) : undefined,
         };
-        return {
+        set(state => ({
           integrations: [...state.integrations, newIntegration],
-        };
+        }));
       }
-    });
+    } catch (error) {
+      console.error('Failed to save API key:', error);
+      throw error;
+    }
   },
 
   testConnection: async (provider) => {
-    // Simulate API test
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const integration = get().integrations.find(int => int.provider === provider);
-    
-    if (!integration || !integration.apiKey) {
+    try {
+      const integration = get().integrations.find(int => int.provider === provider);
+      
+      if (!integration) {
+        throw new Error('Integration not found');
+      }
+      
+      const response = await integrationApi.test(integration.id);
+      
       set(state => ({
         integrations: state.integrations.map(int =>
           int.provider === provider
-            ? { ...int, status: 'error' as const, errorMessage: 'No API key configured' }
+            ? {
+                ...int,
+                status: response.integration.status,
+                lastTested: response.integration.lastTested ? new Date(response.integration.lastTested) : undefined,
+                errorMessage: response.integration.errorMessage,
+              }
+            : int
+        ),
+      }));
+      
+      return response.integration.status === 'connected';
+    } catch (error) {
+      console.error('Failed to test connection:', error);
+      set(state => ({
+        integrations: state.integrations.map(int =>
+          int.provider === provider
+            ? {
+                ...int,
+                status: 'error' as const,
+                errorMessage: error instanceof Error ? error.message : 'Connection test failed',
+              }
             : int
         ),
       }));
       return false;
     }
-    
-    // Simulate successful connection
-    const success = Math.random() > 0.2; // 80% success rate for demo
-    
-    set(state => ({
-      integrations: state.integrations.map(int =>
-        int.provider === provider
-          ? {
-              ...int,
-              status: success ? 'connected' as const : 'error' as const,
-              lastTested: new Date(),
-              errorMessage: success ? undefined : 'Connection failed. Please check your API key.',
-            }
-          : int
-      ),
-    }));
-    
-    return success;
   },
 
-  disableIntegration: (provider) => {
-    set(state => ({
-      integrations: state.integrations.map(int =>
-        int.provider === provider
-          ? { ...int, status: 'disconnected' as const, apiKey: '', errorMessage: undefined }
-          : int
-      ),
-    }));
+  disableIntegration: async (provider) => {
+    try {
+      const integration = get().integrations.find(int => int.provider === provider);
+      
+      if (integration) {
+        await integrationApi.delete(integration.id);
+        set(state => ({
+          integrations: state.integrations.filter(int => int.provider !== provider),
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to disable integration:', error);
+      throw error;
+    }
   },
 
   updateIntegrationStatus: (provider, status, errorMessage) => {
@@ -108,55 +147,17 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
     return get().integrations.find(int => int.provider === provider);
   },
 
-  getConnectedModels: () => {
-    const integrations = get().integrations;
-    const models: CognitiveModel[] = [];
-    
-    integrations.forEach(int => {
-      if (int.status === 'connected') {
-        let model: CognitiveModel;
-        
-        switch (int.provider) {
-          case 'openai':
-            model = {
-              id: 'model-gpt4o',
-              provider: 'openai',
-              name: 'gpt-4o',
-              displayName: 'OpenAI GPT-4O',
-              brainRegion: 'Left Cortex',
-              status: 'connected',
-              position: { x: -2, y: 1, z: 1 },
-            };
-            break;
-          case 'anthropic':
-            model = {
-              id: 'model-claude',
-              provider: 'anthropic',
-              name: 'claude-3.5-sonnet',
-              displayName: 'Anthropic Claude 3.5',
-              brainRegion: 'Right Cortex',
-              status: 'connected',
-              position: { x: 2, y: 1, z: 1 },
-            };
-            break;
-          case 'google':
-            model = {
-              id: 'model-gemini',
-              provider: 'google',
-              name: 'gemini-2.5-pro',
-              displayName: 'Google Gemini 2.5',
-              brainRegion: 'Occipital',
-              status: 'connected',
-              position: { x: 0, y: -1, z: 2 },
-            };
-            break;
-        }
-        
-        models.push(model);
-      }
-    });
-    
-    return models;
+  getConnectedModels: async () => {
+    try {
+      const response = await integrationApi.getAvailableModels();
+      return response.models.map(model => ({
+        ...model,
+        status: model.status as 'connected' | 'error' | 'disconnected',
+      }));
+    } catch (error) {
+      console.error('Failed to get connected models:', error);
+      return [];
+    }
   },
 
   isProviderConnected: (provider) => {

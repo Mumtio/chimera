@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Database, Cpu, Activity } from 'lucide-react';
-import { Container, StatCard, CyberButton, Grid } from '../components/ui';
+import { Database, Cpu, Activity, Edit2, Check, X, MessageSquare, Plus } from 'lucide-react';
+import { Container, StatCard, CyberButton, Grid, CyberCard } from '../components/ui';
 import { NeuralLoadGraph } from '../components/features/NeuralLoadGraph';
 import { ActivityFeed } from '../components/features/ActivityFeed';
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { useChatStore } from '../stores/chatStore';
 import { dummyNeuralLoadData, dummyActivities } from '../data/dummyData';
 
 export default function WorkspaceDashboard() {
@@ -12,6 +14,38 @@ export default function WorkspaceDashboard() {
   const workspace = useWorkspaceStore(state => 
     state.workspaces.find(ws => ws.id === id)
   );
+  const updateWorkspace = useWorkspaceStore(state => state.updateWorkspace);
+  const { getConversationsByWorkspace, createConversation } = useChatStore();
+  const conversations = workspace ? getConversationsByWorkspace(workspace.id) : [];
+  
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [editedName, setEditedName] = useState('');
+  const [editedDescription, setEditedDescription] = useState('');
+
+  const handleStartEditName = () => {
+    setEditedName(workspace?.name || '');
+    setIsEditingName(true);
+  };
+
+  const handleSaveName = async () => {
+    if (workspace && editedName.trim()) {
+      await updateWorkspace(workspace.id, { name: editedName.trim() });
+      setIsEditingName(false);
+    }
+  };
+
+  const handleStartEditDescription = () => {
+    setEditedDescription(workspace?.description || '');
+    setIsEditingDescription(true);
+  };
+
+  const handleSaveDescription = async () => {
+    if (workspace) {
+      await updateWorkspace(workspace.id, { description: editedDescription.trim() });
+      setIsEditingDescription(false);
+    }
+  };
 
   if (!workspace) {
     return (
@@ -39,13 +73,95 @@ export default function WorkspaceDashboard() {
         <div className="scanlines">
           {/* Header */}
           <div className="mb-8">
-            <h1 className="text-4xl font-cyber text-neon-green mb-2 glow-text">
-              {workspace.name}
-            </h1>
-            {workspace.description && (
-              <p className="text-gray-400 text-lg">
-                {workspace.description}
-              </p>
+            {/* Workspace Name */}
+            {isEditingName ? (
+              <div className="flex items-center gap-3 mb-2">
+                <input
+                  type="text"
+                  value={editedName}
+                  onChange={(e) => setEditedName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveName();
+                    if (e.key === 'Escape') setIsEditingName(false);
+                  }}
+                  className="text-4xl font-cyber text-neon-green bg-transparent border-b-2 border-neon-green outline-none px-2"
+                  autoFocus
+                />
+                <button
+                  onClick={handleSaveName}
+                  className="p-2 text-neon-green hover:bg-neon-green/10 rounded transition-colors"
+                  title="Save"
+                >
+                  <Check size={24} />
+                </button>
+                <button
+                  onClick={() => setIsEditingName(false)}
+                  className="p-2 text-gray-400 hover:bg-gray-400/10 rounded transition-colors"
+                  title="Cancel"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 mb-2 group">
+                <h1 className="text-4xl font-cyber text-neon-green glow-text">
+                  {workspace.name}
+                </h1>
+                <button
+                  onClick={handleStartEditName}
+                  className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-neon-green transition-all"
+                  title="Edit workspace name"
+                >
+                  <Edit2 size={20} />
+                </button>
+              </div>
+            )}
+
+            {/* Workspace Description */}
+            {isEditingDescription ? (
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={editedDescription}
+                  onChange={(e) => setEditedDescription(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveDescription();
+                    if (e.key === 'Escape') setIsEditingDescription(false);
+                  }}
+                  className="text-lg text-gray-400 bg-transparent border-b border-gray-400 outline-none px-2 flex-1"
+                  placeholder="Add a description..."
+                  autoFocus
+                />
+                <button
+                  onClick={handleSaveDescription}
+                  className="p-1 text-neon-green hover:bg-neon-green/10 rounded transition-colors"
+                  title="Save"
+                >
+                  <Check size={18} />
+                </button>
+                <button
+                  onClick={() => setIsEditingDescription(false)}
+                  className="p-1 text-gray-400 hover:bg-gray-400/10 rounded transition-colors"
+                  title="Cancel"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 group">
+                {workspace.description ? (
+                  <p className="text-gray-400 text-lg">{workspace.description}</p>
+                ) : (
+                  <p className="text-gray-600 text-lg italic">No description</p>
+                )}
+                <button
+                  onClick={handleStartEditDescription}
+                  className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-neon-green transition-all"
+                  title="Edit description"
+                >
+                  <Edit2 size={16} />
+                </button>
+              </div>
             )}
           </div>
 
@@ -131,6 +247,59 @@ export default function WorkspaceDashboard() {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Recent Conversations */}
+          <div className="mt-6">
+            <CyberCard title="Recent Neural Chats" glowBorder>
+              <div className="space-y-2">
+                {conversations.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p>No conversations yet</p>
+                    <CyberButton
+                      variant="primary"
+                      size="sm"
+                      className="mt-4"
+                      onClick={() => navigate(`/app/model-select`)}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Start New Chat
+                    </CyberButton>
+                  </div>
+                ) : (
+                  <>
+                    {conversations.slice(0, 5).map((conv) => (
+                      <button
+                        key={conv.id}
+                        onClick={() => navigate(`/app/chat/${conv.id}`)}
+                        className="w-full text-left p-3 rounded border border-deep-teal hover:border-neon-green hover:bg-neon-green/5 transition-all group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <h4 className="text-sm font-medium text-white group-hover:text-neon-green transition-colors">
+                              {conv.title}
+                            </h4>
+                            <p className="text-xs text-gray-400 mt-1">
+                              {conv.messages?.length || 0} messages • {new Date(conv.updatedAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <MessageSquare className="w-4 h-4 text-gray-400 group-hover:text-neon-green transition-colors" />
+                        </div>
+                      </button>
+                    ))}
+                    {conversations.length > 5 && (
+                      <button
+                        onClick={() => navigate(`/app/chat`)}
+                        className="w-full text-center p-2 text-sm text-neon-green hover:bg-neon-green/10 rounded transition-colors"
+                      >
+                        View all {conversations.length} conversations →
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </CyberCard>
           </div>
 
           {/* Activity Feed */}

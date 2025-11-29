@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, ArrowLeft, Database, Zap } from 'lucide-react';
+import { Send, ArrowLeft, Database, Zap, Edit2 } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
 import { useMemoryStore } from '../stores/memoryStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
@@ -18,11 +18,14 @@ const Chat: React.FC = () => {
   const [messageInput, setMessageInput] = useState('');
   const [sparkTrigger, setSparkTrigger] = useState<string | null>(null);
   const [injectingMemory, setInjectingMemory] = useState<{ id: string; title: string } | null>(null);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const {
     getConversationById,
     sendMessage,
+    updateConversation,
     pinMessage,
     unpinMessage,
     deleteMessage,
@@ -30,6 +33,7 @@ const Chat: React.FC = () => {
     autoStore,
     setAutoStore,
     getMessageById,
+    loadConversationMessages,
   } = useChatStore();
 
   const { getMemoriesByWorkspace, getMemoryById } = useMemoryStore();
@@ -38,6 +42,13 @@ const Chat: React.FC = () => {
   const conversation = conversationId ? getConversationById(conversationId) : null;
   const activeWorkspace = getActiveWorkspace();
   const workspaceMemories = activeWorkspace ? getMemoriesByWorkspace(activeWorkspace.id) : [];
+
+  // Load conversation messages when conversation ID changes
+  useEffect(() => {
+    if (conversationId) {
+      loadConversationMessages(conversationId);
+    }
+  }, [conversationId, loadConversationMessages]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -75,13 +86,14 @@ const Chat: React.FC = () => {
   }, [handleSendMessage]);
 
   const handlePinMessage = useCallback((messageId: string) => {
+    if (!conversation) return;
     const message = getMessageById(messageId);
     if (message?.isPinned) {
-      unpinMessage(messageId);
+      unpinMessage(conversation.id, messageId);
     } else {
-      pinMessage(messageId);
+      pinMessage(conversation.id, messageId);
     }
-  }, [getMessageById, unpinMessage, pinMessage]);
+  }, [conversation, getMessageById, unpinMessage, pinMessage]);
 
   const handleCopyMessage = useCallback((messageId: string) => {
     // Copy functionality is handled in ChatMessage component
@@ -89,10 +101,11 @@ const Chat: React.FC = () => {
   }, []);
 
   const handleDeleteMessage = useCallback((messageId: string) => {
+    if (!conversation) return;
     if (confirm('Are you sure you want to delete this message?')) {
-      deleteMessage(messageId);
+      deleteMessage(conversation.id, messageId);
     }
-  }, [deleteMessage]);
+  }, [conversation, deleteMessage]);
 
   const handleInjectMemory = useCallback((memoryId: string) => {
     if (conversationId) {
@@ -133,10 +146,58 @@ const Chat: React.FC = () => {
         {/* Conversation Header */}
         <div className="border-b-2 border-deep-teal bg-black/50 p-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-cyber font-bold text-neon-green uppercase tracking-wider">
-                {conversation.title}
-              </h1>
+            <div className="flex-1">
+              {isEditingTitle ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={editedTitle}
+                    onChange={(e) => setEditedTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && conversation) {
+                        updateConversation(conversation.id, { title: editedTitle.trim() });
+                        setIsEditingTitle(false);
+                      }
+                      if (e.key === 'Escape') setIsEditingTitle(false);
+                    }}
+                    className="text-2xl font-cyber font-bold text-neon-green uppercase tracking-wider bg-transparent border-b-2 border-neon-green outline-none px-2"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => {
+                      if (conversation) {
+                        updateConversation(conversation.id, { title: editedTitle.trim() });
+                        setIsEditingTitle(false);
+                      }
+                    }}
+                    className="p-1 text-neon-green hover:bg-neon-green/10 rounded"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    onClick={() => setIsEditingTitle(false)}
+                    className="p-1 text-gray-400 hover:bg-gray-400/10 rounded"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 group">
+                  <h1 className="text-2xl font-cyber font-bold text-neon-green uppercase tracking-wider">
+                    {conversation.title}
+                  </h1>
+                  <button
+                    onClick={() => {
+                      setEditedTitle(conversation.title);
+                      setIsEditingTitle(true);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-neon-green transition-all"
+                    title="Edit title"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                </div>
+              )}
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-sm text-gray-400">
                   Status: <span className="text-neon-green">{conversation.status}</span>
@@ -253,7 +314,7 @@ const Chat: React.FC = () => {
               </span>
             </div>
             <div className="text-xs text-gray-600 font-mono">
-              {conversation.injectedMemories.length} memories injected
+              {conversation.injectedMemories?.length || 0} memories injected
             </div>
           </div>
         </div>
@@ -266,7 +327,7 @@ const Chat: React.FC = () => {
             Injectable Memories
           </h2>
           <p className="text-xs text-gray-400 mt-1">
-            Click to inject into conversation context
+            Auto-generated conversation summaries
           </p>
         </div>
 
@@ -274,7 +335,10 @@ const Chat: React.FC = () => {
           {workspaceMemories.length === 0 ? (
             <div className="text-center py-8">
               <Database className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">No memories available</p>
+              <p className="text-gray-500 text-sm">No memories available yet</p>
+              <p className="text-gray-600 text-xs mt-2">
+                Memories are auto-generated from conversations
+              </p>
             </div>
           ) : (
             workspaceMemories.map((memory) => {

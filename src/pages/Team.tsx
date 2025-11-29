@@ -4,6 +4,7 @@ import { UserPlus, MoreVertical, Shield, Eye, User, Circle } from 'lucide-react'
 import { CyberButton } from '../components/ui/CyberButton';
 import { CyberCard } from '../components/ui/CyberCard';
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { useAuthStore } from '../stores/authStore';
 import { dummyUsers } from '../data/dummyData';
 import type { TeamMember } from '../types';
 
@@ -11,6 +12,7 @@ const Team: React.FC = () => {
   const navigate = useNavigate();
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const workspaces = useWorkspaceStore(state => state.workspaces);
+  const currentUser = useAuthStore(state => state.user);
   
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -19,6 +21,20 @@ const Team: React.FC = () => {
 
   const currentWorkspace = workspaces.find(w => w.id === activeWorkspaceId);
   const teamMembers = currentWorkspace?.members || [];
+  
+  // Add current user to team if not already there
+  const isCurrentUserInTeam = teamMembers.some(m => m.userId === currentUser?.id);
+  const displayMembers = isCurrentUserInTeam ? teamMembers : [
+    ...teamMembers,
+    {
+      id: 'current-user',
+      userId: currentUser?.id || '',
+      workspaceId: activeWorkspaceId || '',
+      role: 'admin' as const,
+      status: 'online' as const,
+      joinedAt: new Date(),
+    }
+  ];
 
   const getUserInfo = (userId: string) => {
     return dummyUsers.find(u => u.id === userId);
@@ -141,9 +157,10 @@ const Team: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {teamMembers.map((member) => {
-                  const userInfo = getUserInfo(member.userId);
+                {displayMembers.map((member) => {
+                  const userInfo = member.userId === currentUser?.id ? currentUser : getUserInfo(member.userId);
                   if (!userInfo) return null;
+                  const isCurrentUser = member.userId === currentUser?.id;
 
                   return (
                     <tr
@@ -171,7 +188,14 @@ const Team: React.FC = () => {
                               {userInfo.name.split(' ').map(n => n[0]).join('')}
                             </span>
                           </div>
-                          <span className="text-white font-medium">{userInfo.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-white font-medium">{userInfo.name}</span>
+                            {isCurrentUser && (
+                              <span className="text-neon-green text-xs font-mono px-2 py-0.5 bg-neon-green/10 border border-neon-green/30 rounded">
+                                (You)
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
 

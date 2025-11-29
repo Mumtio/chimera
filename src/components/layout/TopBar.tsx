@@ -1,18 +1,30 @@
-import { Link } from 'react-router-dom';
-import { ChevronDown, Activity } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Activity, LogOut } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useIntegrationStore } from '../../stores/integrationStore';
-import { useState } from 'react';
+import { useAuthStore } from '../../stores/authStore';
 
 export function TopBar() {
+  const navigate = useNavigate();
   const { getActiveWorkspace } = useWorkspaceStore();
   const { getConnectedModels } = useIntegrationStore();
+  const { logout, user } = useAuthStore();
   const activeWorkspace = getActiveWorkspace();
-  const connectedModels = getConnectedModels();
-  const [selectedModel, setSelectedModel] = useState(connectedModels[0]?.displayName || 'No Model Selected');
+  const [connectedModels, setConnectedModels] = useState<any[]>([]);
+
+  // Load connected models
+  useEffect(() => {
+    getConnectedModels().then(setConnectedModels);
+  }, [getConnectedModels]);
 
   // System status based on integrations
   const systemStatus = connectedModels.length > 0 ? 'online' : 'offline';
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/auth/login');
+  };
 
   return (
     <header className="h-16 bg-lab-panel/95 backdrop-blur-md border-b border-lab-border flex items-center justify-between px-6 relative overflow-hidden">
@@ -39,7 +51,7 @@ export function TopBar() {
         </div>
       </div>
 
-      {/* Right: System Status Only */}
+      {/* Right: System Status and User */}
       <div className="flex items-center gap-6 relative z-10">
         {/* System Status Indicator */}
         <div className="flex items-center gap-2" role="status" aria-live="polite">
@@ -57,6 +69,24 @@ export function TopBar() {
               {systemStatus === 'online' ? 'ONLINE' : 'OFFLINE'}
             </span>
           </div>
+        </div>
+
+        <div className="h-8 w-px bg-neon-green/20" aria-hidden="true" />
+
+        {/* User Info and Logout */}
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end">
+            <span className="text-xs text-gray-500 uppercase tracking-wider">User</span>
+            <span className="text-sm text-white font-medium">{user?.name || 'Guest'}</span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="p-2 text-gray-400 hover:text-neon-green transition-colors rounded hover:bg-neon-green/10"
+            aria-label="Logout"
+            title="Logout"
+          >
+            <LogOut size={20} />
+          </button>
         </div>
       </div>
     </header>

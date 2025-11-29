@@ -6,14 +6,19 @@ import { useAuthStore } from '../stores/authStore';
 
 export default function Signup() {
   const navigate = useNavigate();
-  const { signup } = useAuthStore();
+  const { signup, error } = useAuthStore();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const handleSignup = async () => {
-    await signup(name, email, password);
-    navigate('/app/workspace/workspace-1');
+    try {
+      await signup(name, email, password);
+      // Redirect to /app which will load workspaces and redirect to first one
+      navigate('/app');
+    } catch (error) {
+      // Error is already set in the store
+    }
   };
 
   return (
@@ -68,6 +73,12 @@ export default function Signup() {
                 onChange={setPassword}
               />
             </div>
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-3 text-red-400 text-sm">
+                {error}. Please check your information and try again.
+              </div>
+            )}
 
             <CyberButton
               variant="primary"

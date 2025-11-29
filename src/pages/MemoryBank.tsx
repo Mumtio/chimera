@@ -111,12 +111,20 @@ const MemoryBank: React.FC = () => {
                 ? 'No memories found matching your search.' 
                 : 'No memories in this workspace yet.'}
             </p>
-            <CyberButton
-              variant="secondary"
-              onClick={() => setSearchQuery('')}
-            >
-              {searchQuery ? 'Clear Search' : 'Create First Memory'}
-            </CyberButton>
+            {!searchQuery ? (
+              <p className="text-gray-500 text-sm">
+                Memories are automatically generated from your conversations.
+                <br />
+                Start a chat to create your first memory.
+              </p>
+            ) : (
+              <CyberButton
+                variant="secondary"
+                onClick={() => setSearchQuery('')}
+              >
+                Clear Search
+              </CyberButton>
+            )}
           </div>
         </div>
       )}

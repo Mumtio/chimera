@@ -1,11 +1,14 @@
 import { Outlet, useLocation } from 'react-router-dom';
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import { LeftSidebar } from '../components/layout/LeftSidebar';
 import { TopBar } from '../components/layout/TopBar';
 import { RightSidebar } from '../components/layout/RightSidebar';
 import { WorkspaceTransition } from '../components/animations/WorkspaceTransition';
 import { CyberSpinner } from '../components/ui';
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { useIntegrationStore } from '../stores/integrationStore';
+import { useChatStore } from '../stores/chatStore';
+import { useMemoryStore } from '../stores/memoryStore';
 import { useState } from 'react';
 
 export default function AppShell() {
@@ -17,8 +20,50 @@ export default function AppShell() {
     previousWorkspaceId,
     getActiveWorkspace,
     getWorkspaceById,
+    loadWorkspaces,
   } = useWorkspaceStore();
+  const { loadIntegrations } = useIntegrationStore();
+  const { loadConversations } = useChatStore();
+  const { loadMemories } = useMemoryStore();
   const [showNewWorkspaceModal, setShowNewWorkspaceModal] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Get active workspace
+  const activeWorkspace = getActiveWorkspace();
+  const previousWorkspace = previousWorkspaceId ? getWorkspaceById(previousWorkspaceId) : null;
+
+  // Load initial data on mount
+  useEffect(() => {
+    const initialize = async () => {
+      try {
+        await loadWorkspaces();
+        await loadIntegrations();
+        setIsInitialized(true);
+      } catch (error) {
+        console.error('Failed to initialize app:', error);
+        setIsInitialized(true); // Still set to true to show the app
+      }
+    };
+    
+    initialize();
+  }, [loadWorkspaces, loadIntegrations]);
+
+  // Load workspace-specific data when active workspace changes
+  useEffect(() => {
+    const loadWorkspaceData = async () => {
+      if (activeWorkspace) {
+        try {
+          // Load conversations and memories for the active workspace
+          await loadConversations(activeWorkspace.id);
+          await loadMemories(activeWorkspace.id);
+        } catch (error) {
+          console.error('Failed to load workspace data:', error);
+        }
+      }
+    };
+    
+    loadWorkspaceData();
+  }, [activeWorkspace?.id, loadConversations, loadMemories]);
 
   // Right sidebar is always hidden
   const hideRightSidebar = true;
@@ -30,9 +75,6 @@ export default function AppShell() {
     createWorkspace(workspaceName, 'New workspace description');
     setShowNewWorkspaceModal(false);
   };
-
-  const activeWorkspace = getActiveWorkspace();
-  const previousWorkspace = previousWorkspaceId ? getWorkspaceById(previousWorkspaceId) : null;
 
   return (
     <div className="h-screen flex flex-col bg-lab-dark text-white overflow-hidden relative">
